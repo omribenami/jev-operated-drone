@@ -1,0 +1,60 @@
+{
+  "drone": {
+    "ip": "192.168.10.1",
+    "cmd_port": 8889,
+    "state_port": 8890,
+    "video_port": 11111,
+    "local_cmd_port": 9200,
+    "ssid_prefix": "TELLO-C4A2A1",
+    "ssid_preferred": [
+      "TELLO-C4A2A1-EXT",
+      "TELLO-C4A2A1"
+    ]
+  },
+  "wifi": {
+    "iface": "wlp3s0",
+    "restore_previous_connection": true
+  },
+  "power": {
+    "on_url": "http://192.168.1.253:1880/inject/inj_jarvis_tasmota",
+    "off_url": "http://192.168.1.253:1880/inject/inj_jarvis_tasmota_off",
+    "ha_url": "http://192.168.1.253:8123",
+    "ha_entity": "switch.tello",
+    "boot_wait_s": 45,
+    "power_off_after_mission": false
+  },
+  "sdk": {
+    "probe_count": 15,
+    "probe_interval_s": 4.0,
+    "min_battery_takeoff": 25,
+    "min_battery_flip": 55
+  },
+  "jev": {
+    "base_url": "https://ai-gateway.vercel.sh",
+    "model": "typesafe-ai/jev",
+    "api_key_env": "JEV_API_KEY",
+    "timeout_s": 12,
+    "min_confidence": 0.45,
+    "frontend": "vision",
+    "vision_model": "openai/gpt-4o-mini",
+    "vision_timeout_s": 20
+  },
+  "mission": {
+    "photos_dir": "photos",
+    "logs_dir": "logs",
+    "recordings_dir": "recordings",
+    "overlay_font": "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+    "takeoff_climb_cm": 20,
+    "max_flight_s": 300,
+    "scan_step_deg": 45,
+    "frames_per_heading": 4,
+    "frame_settle_s": 1.2,
+    "do_flip": true,
+    "flip_direction": "b",
+    "center_on_person": true,
+    "max_distance_from_launch_cm": 500,
+    "nav_forward_step_cm": 100,
+    "return_buffer_s": 60,
+    "frame_gap_s": 0.4
+  }
+}

@@ -1,0 +1,4 @@
+requests>=2.25
+# required: classical frame analysis that feeds jev its observation state
+opencv-python-headless>=4.5,<5   # 5.x dropped HOGDescriptor
+numpy>=1.19

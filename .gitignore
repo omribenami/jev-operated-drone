@@ -1,0 +1,6 @@
+secrets.json
+photos/*.jpg
+photos/*.json
+logs/
+recordings/
+__pycache__/
