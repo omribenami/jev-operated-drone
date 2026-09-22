@@ -65,14 +65,29 @@ command may be sent before `command` acks `ok`. This is enforced in
 `Tello.flight()`, which raises `TelloError` if `self.ready` is false — the
 readiness flag is only set by `wait_ready()`'s successful probe loop.
 `Mission.fly()` wraps every movement to also track dead-reckoned pose and
-check flight-time/battery limits (`check_limits()`) before each command.
-`check_limits()` failures (battery-critical, max-flight-time) always abort
-the mission immediately — but a command that errors is retried a couple of
-times and then just *skipped* (mission keeps going) rather than aborting the
-whole flight; pose is only updated on a command that actually succeeded.
+call `check_limits()` before each command; pose is only updated on a command
+that actually succeeded.
+
+**Landing policy — the drone comes down for exactly three reasons**: the
+person was found (photo → flip → return → land), the battery reached
+`sdk.min_battery_land` (`MissionStop` → land *in place*, since the remaining
+charge is worth more as a controlled descent than a return leg), or the
+operator interrupted (Ctrl-C/`SIGTERM`). **Errors explicitly do not land
+it.** A command that errors is retried a couple of times and then skipped
+(`fly()` returns `False`); an error that escapes a whole phase is logged and
+the search loop in `run()` simply resumes. Running out of viable directions
+isn't a landing either — `phase_search` returns `None` and `reposition()`
+nudges the drone somewhere new. There is no search *time* budget and no
+consecutive-command-failure circuit breaker (it used to abort→emergency-land
+after N failures; if the link is truly dead that abort couldn't send `land`
+either, so it only cost otherwise-healthy flights — the count is still
+tracked and logged). `check_limits()` reads the battery from the passive
+state listener (no round trip) and requires **two consecutive** reads below
+the floor, because this pack sags hard under load; `max_flight_s` is now
+only a backstop for when battery telemetry is unreadable, since otherwise
+nothing would ever bring the drone down.
 Killing the process (any `SIGTERM`, not just Ctrl-C/`SIGINT`) is caught and
-routed through the same abort→emergency-land→cleanup path as everything
-else — `Mission.run()` installs a handler that turns `SIGTERM` into a
+routed through the abort→emergency-land→cleanup path — `Mission.run()` installs a handler that turns `SIGTERM` into a
 `KeyboardInterrupt` for exactly this reason; without it a killed process
 would skip straight past `except`/`finally` and could leave the drone
 airborne with no landing attempt.
@@ -85,19 +100,86 @@ cm per `forward` command) back to the launch point. `Mission.maintain_height()`
 similarly corrects barometer drift against the post-takeoff target height
 (SDK `up`/`down` need ≥20cm to be valid, so smaller drift is left alone).
 
-**Navigation has no fixed route — jev decides where and when** (`phase_search`
-in `mission.py`). At each stop: burst-check for a person (`look()`, unchanged
-from before); if none, ask jev a second typed question, `next_action`
-(choice: `rotate`/`advance`/`stop`), reusing the same frame state the person
-check just built (`JevDetector.last_state` — no extra frontend pass, one
-extra jev round trip: `JevDetector.decide_navigation()`). `stop` (jev calling
-this direction a dead end) is treated the same as `rotate`. The only hard
-limits regardless of what jev picks: `mission.max_distance_from_launch_cm`
-(no obstacle sensing — forward movement is blind, and dead-reckoning drift
-compounds the further it roams, so `advance` stops being offered past this)
-and `mission.return_buffer_s` (the search loop gives up once
-`max_flight_s - return_buffer_s` has elapsed, so there's still time to fly
-home and land instead of hard-aborting mid-search).
+**Navigation has no fixed route, and the whole circle is captured before
+anything is judged** (`phase_search` in `mission.py`). One search cycle is
+three separable steps:
+
+1. `scan_circle()` — rotate a full circle grabbing **one** frame per heading
+   (`scan_step_deg`, 60° → 6 headings), and nothing else. Pure mechanics, no
+   network. It returns `[(yaw_at_capture, jpeg)]`, recording the *live pose*
+   at each capture rather than an assumed `i*scan_step`, so a rotate the
+   drone skipped (routine — "No valid imu") can no longer silently mislabel
+   every heading after it. Turns back to a heading are computed from live
+   pose at decision time.
+2. `JevDetector.detect_frames()` — judge the whole circle **concurrently**
+   (`detect_workers` threads). Each frame costs two sequential HTTP round
+   trips (vision model, then jev), and doing that inline per heading is what
+   made a 360° scan take ~70 s of a ~150 s battery; run across headings they
+   overlap into roughly one frame's latency for the circle (measured 4.1×
+   on a 6-frame circle). Per-call state comes back in the returned tuple
+   `(Detection, state, blocked)` rather than on `self`, because
+   `last_state`/`last_blocked` can't be shared by concurrent calls (`detect()`
+   still sets them for the sequential callers: `calibrate`, `detector-check`).
+3. One jev call — `decide_navigation(headings, ...)` — compares every heading
+   and returns either the index of the best one to advance into, or
+   `'ascend'`/`'descend'`, or `None` (nothing viable here). `phase_search`
+   turns to face the chosen heading and moves `mission.nav_forward_step_cm`
+   forward; the next iteration starts a fresh circle from the new spot.
+   `ascend`/`descend` move `mission.nav_vertical_step_cm` and update
+   `Mission.target_height_cm` on success — `maintain_height()` corrects drift
+   against whatever this current value is, not the original post-takeoff
+   height, so it doesn't fight a deliberate height change back down.
+
+**Detection is two-stage by design: a sensitive scan, then a skeptical
+confirm.** The two stages ask jev *different* questions
+(`JevDetector.SCAN_Q` / `STRICT_Q`, selected by `detect_one(strict=)`)
+because they want different things. Sweeping a room wants recall — the
+frontend is told to report a bare leg or an arm behind a door as a person,
+since missing someone is the one unrecoverable failure and a false alarm
+costs seconds. Committing the mission to a heading wants precision, so
+`Mission.confirm_person()` turns back to the flagged heading, takes
+`confirm_frames` (3) **fresh** frames, asks the skeptical question, and
+requires every frame to individually clear `jev.confirm_min_confidence`
+(0.60, higher than the scan's `min_confidence`). The frames are judged
+concurrently, so the 3-frame confirm costs about what one frame used to.
+
+Measured on frames from the 2026-09-21 flight: a real person seen only as
+bare legs at the frame edge scores 0.89 on the scan and 0.73–0.78 strict; a
+tan blob in a doorway scores 0.82–0.86 on the scan and drops to 0.52–0.71
+strict; an empty room is 0.02–0.08 throughout. The "every frame must clear"
+rule is what actually separates the last two — the blob cleared 0.60 on one
+frame out of four. Don't make `STRICT_Q` harsher without re-measuring: an
+earlier wording ("is a human DEFINITELY visible") rejected the real person
+too (0.39–0.45). The thing to be strict about is human *form*, not how much
+of the body happens to be in frame.
+
+A heading only makes it into jev's choice set if it isn't a deterministic
+dead end — not left purely to jev's judgment of the scene text. Two gates:
+`JevDetector._check_blocked()` computes a cheap "mostly flat and bright"
+signal (>60% near-white pixels *and* low Canny edge density) directly from
+the frame, and the vision frontend's own `openness == "blocked"`. The first
+is the strong gate but **needs `opencv`+`numpy` importable and silently does
+nothing without them — which is the case on the current host** (no cv2, no
+numpy, no pip; `bright_frac`/`edge_density` come out `null` in the decisions
+log, and the `features`/`opencv` frontends can't run at all). That's why the
+vision frontend's `openness` exists: weaker, since it's still a model's
+judgment, but made while *looking at the image* rather than by jev reading a
+one-line string. Installing `opencv-python-headless` + `numpy` re-arms the
+strong gate with no code change.
+
+The only hard limits regardless of what jev picks:
+`mission.max_distance_from_launch_cm` and `mission.max_height_deviation_cm`
+(no obstacle sensing — forward/vertical movement is blind, and
+dead-reckoning drift compounds the further/higher it roams, so a heading
+within one step of the distance ceiling is never offered as an `advance`
+candidate, and `ascend`/`descend` stop being offered past their own
+ceiling). Nothing else constrains it: there is no search time budget — the
+search keeps going until a person is found or the battery floor is reached.
+
+**`Tello.flight("stop")` is not sent** — this firmware returns `unknown
+command: stop` for it on every single flight tested; it was a no-op call
+right after takeoff (the Tello already hovers on its own) and is simply
+removed rather than worked around.
 
 **Detection is a two-stage pipeline: a pluggable *frontend* + jev as the
 fixed judge** (`detector.py`). jev (`typesafe-ai/jev`, called through the
@@ -112,19 +194,21 @@ of `next_action`):
     candidates on top of the features. Offline.
   - `vision` (`VisionFrontend`, default): calls a fast vision-language model
     (default `openai/gpt-4o-mini`) via the gateway's `/v4/ai/language-model`
-    endpoint to describe people directly as JSON, including a one-line
-    `scene` description — the main signal `decide_navigation()` has to
-    reason about open paths vs. dead ends. The offline frontends give jev
-    almost nothing to go on for navigation, only for person detection.
+    endpoint to describe people directly as JSON, plus the layout fields
+    `scene`/`openness`/`path`/`exits` — the only real signal
+    `decide_navigation()` has to reason about open paths vs. dead ends, and
+    free, since the call is being made for detection anyway. The prompt
+    explicitly counts a partly-visible body (bare legs, feet, an arm, a
+    head, someone behind a door) as a real person: an earlier version
+    described the actual search target as `is_real_person=false`
+    ("partially visible"), and jev then scored that frame 0.18. The offline
+    frontends give jev almost nothing to go on for navigation, only for
+    person detection.
 
-  `Mission.look()` bursts `frames_per_heading` (4) detections per heading and
-  requires **every** frame in the burst to individually clear
-  `jev.min_confidence` before accepting a detection — a mean-based check let
-  a door through once (0.84/0.81/0.03, mean 0.56, above threshold) that jev
-  itself scored 0.03 in isolation; one flaky frame in an otherwise-empty
-  burst no longer drags the average past threshold. A dropped frame (burst
-  shorter than `frames_per_heading`) also fails the check outright rather
-  than being judged on whatever partial subset succeeded. `make_detector()` also runs
+  The offline frontends need `opencv`+`numpy`, which are **not installed on
+  the current host** — `vision` is the only frontend that actually runs here.
+  The scan/confirm split and the every-frame-must-clear rule are described
+  under Navigation above. `make_detector()` also runs
   `jev.healthy()` as a startup sanity probe; if jev doesn't answer, the
   mission refuses to take off (there is deliberately no fallback detector for
   the live mission — only for `--dry-run`). Every jev call (detection and
@@ -195,9 +279,25 @@ crashed mid-cleanup and skipped writing the mission report entirely.
 
 `config.json` (loaded once in `cli.py`, mutated in place by CLI flags for
 frontend/model overrides) drives everything: drone network params, SDK probe
-counts/battery minimums, jev model/frontend/confidence threshold, and the
+counts/battery minimums, jev model/frontend/confidence thresholds, and the
 navigation limits (`max_distance_from_launch_cm`, `nav_forward_step_cm`,
-`return_buffer_s`) described above. `power.ha_entity` must be the real HA
+`nav_vertical_step_cm`, `max_height_deviation_cm`) described above.
+
+The knobs that set the search's pace and its two confidence bars:
+`scan_step_deg` (60 → 6 headings/circle), `confirm_frames` (3),
+`detect_workers` (6), `frame_settle_s`/`scan_settle_s`/`frame_gap_s` (dead
+time per frame — these are per-heading, so they multiply), and
+`jev.min_confidence` (0.45, the sensitive scan bar) vs
+`jev.confirm_min_confidence` (0.60, the skeptical confirm bar). Search
+altitude comes from `takeoff_climb_cm` (70): the camera is fixed and angled
+down, so at the old ~90 cm hover the frame was mostly carpet and a person
+only ever entered it as feet — flying at ~1.6 m is what puts torsos in
+frame, and it is the single highest-leverage setting for finding people at
+all. `sdk.min_battery_land` (15) is the only battery number that ends a
+flight; `min_battery_flip` is now the same 15 rather than 55, because this
+pack sags into the high teens under search load and a 55 gate meant the flip
+was skipped on every real flight that found someone (the firmware still
+refuses a flip it considers unsafe, and that refusal is logged, not fatal). `power.ha_entity` must be the real HA
 entity ID (verify via `GET /api/states/<id>`, not just a friendly
 name/guess) — a wrong one won't error, it'll just silently do nothing.
 

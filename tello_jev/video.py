@@ -78,7 +78,12 @@ class VideoStream:
                 cmd += ["-vf", overlay, "-c:v", "libx264", "-preset", "veryfast", "-strict", "unofficial"]
             else:
                 cmd += ["-c:v", "copy"]
-            cmd += ["-an", "-movflags", "+faststart", "-y", self.record_path]
+            # NOT -movflags +faststart: it requires ffmpeg to rewrite the *entire* file at
+            # shutdown to relocate the moov atom to the front, and that rewrite scales with
+            # file size -- for a long/heavy recording it can outrun any reasonable shutdown
+            # grace period, leaving the moov atom (and so the whole file) never written at
+            # all. These are local-only files, never streamed, so faststart buys nothing.
+            cmd += ["-an", "-y", self.record_path]
         # a plain PIPE that nothing drains can fill up and block ffmpeg's own writes if it
         # logs enough (e.g. repeated PPS-reference warnings while catching the stream) --
         # a file avoids that deadlock entirely and doubles as a log for post-mortem review.

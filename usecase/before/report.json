@@ -1,0 +1,142 @@
+{
+  "dry_run": false,
+  "started": "2026-09-21 22:29:58",
+  "events": [
+    {
+      "t": -0.0,
+      "msg": "power: on, boot wait done"
+    },
+    {
+      "t": -0.0,
+      "msg": "wifi: connected to TELLO-C4A2A1",
+      "ssid": "TELLO-C4A2A1"
+    },
+    {
+      "t": -0.0,
+      "msg": "sdk: ready, battery 70%",
+      "battery": 70
+    },
+    {
+      "t": -0.0,
+      "msg": "launch: takeoff"
+    },
+    {
+      "t": 3.1,
+      "msg": "launch: hovering, telemetry {'bat': '67', 'h': '90', 'tof': '110', 'yaw': '0', 'templ': '74', 'temph': '76', 'time': '11'}"
+    },
+    {
+      "t": 60.9,
+      "msg": "retry 'cw 45' after error: 'cw 45' failed: error No valid imu"
+    },
+    {
+      "t": 61.6,
+      "msg": "retry 'cw 45' after error: 'cw 45' failed: error No valid imu"
+    },
+    {
+      "t": 62.4,
+      "msg": "SKIP 'cw 45' after 3 failed attempts: 'cw 45' failed: error No valid imu"
+    },
+    {
+      "t": 77.5,
+      "msg": "SEARCH: jev picks 0 from 360\u00b0 scan (0cm from launch, h+0cm)",
+      "pose": {
+        "x_cm": 0,
+        "y_cm": 0,
+        "yaw_deg": 270
+      }
+    },
+    {
+      "t": 126.8,
+      "msg": "SEARCH: person found, heading 90\u00b0 (conf 0.85, jev+vision)",
+      "pose": {
+        "x_cm": 71,
+        "y_cm": 71,
+        "yaw_deg": 90
+      },
+      "detection": {
+        "person": true,
+        "confidence": 0.85,
+        "bbox": [
+          0.4,
+          0.5,
+          0.6,
+          0.8
+        ],
+        "description": "jev p=0.85 over 1 candidates (vision)",
+        "backend": "jev+vision"
+      }
+    },
+    {
+      "t": 127.6,
+      "msg": "PHOTO saved /home/ben-ami/tello-jev-mission/photos/person_20260921_223309.jpg"
+    },
+    {
+      "t": 127.6,
+      "msg": "FLIP skipped: battery 19% < 55%"
+    },
+    {
+      "t": 127.6,
+      "msg": "RTH: 100cm away, turning +45\u00b0",
+      "pose": {
+        "x_cm": 71,
+        "y_cm": 71,
+        "yaw_deg": 90
+      }
+    },
+    {
+      "t": 133.5,
+      "msg": "retry 'ccw 135' after error: 'ccw 135' failed: error No valid imu"
+    },
+    {
+      "t": 134.3,
+      "msg": "retry 'ccw 135' after error: 'ccw 135' failed: error No valid imu"
+    },
+    {
+      "t": 135.0,
+      "msg": "SKIP 'ccw 135' after 3 failed attempts: 'ccw 135' failed: error No valid imu"
+    },
+    {
+      "t": 135.0,
+      "msg": "RTH: at home (dead-reckoned) {'x_cm': 0, 'y_cm': 0, 'yaw_deg': 135}"
+    },
+    {
+      "t": 135.0,
+      "msg": "LAND"
+    },
+    {
+      "t": 140.3,
+      "msg": "power: off"
+    }
+  ],
+  "person": {
+    "detection": {
+      "person": true,
+      "confidence": 0.85,
+      "bbox": [
+        0.4,
+        0.5,
+        0.6,
+        0.8
+      ],
+      "description": "jev p=0.85 over 1 candidates (vision)",
+      "backend": "jev+vision"
+    },
+    "pose": {
+      "x_cm": 71,
+      "y_cm": 71,
+      "yaw_deg": 90
+    }
+  },
+  "photo": "/home/ben-ami/tello-jev-mission/photos/person_20260921_223309.jpg",
+  "outcome": "person found",
+  "detector": "jev+vision",
+  "jev_decisions_log": "/home/ben-ami/tello-jev-mission/logs/jev_decisions_20260921_222958.jsonl",
+  "recording": "/home/ben-ami/tello-jev-mission/recordings/flight_20260921_222958.mp4",
+  "ended": "2026-09-21 22:33:21",
+  "final_pose": {
+    "x_cm": 0,
+    "y_cm": 0,
+    "yaw_deg": 135
+  },
+  "flight_s": 140.3
+}

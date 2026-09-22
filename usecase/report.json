@@ -1,0 +1,186 @@
+{
+  "dry_run": false,
+  "started": "2026-09-21 23:12:18",
+  "events": [
+    {
+      "t": -0.0,
+      "msg": "power: on, boot wait done"
+    },
+    {
+      "t": -0.0,
+      "msg": "wifi: connected to TELLO-C4A2A1",
+      "ssid": "TELLO-C4A2A1"
+    },
+    {
+      "t": -0.0,
+      "msg": "sdk: ready, battery 100%",
+      "battery": 100
+    },
+    {
+      "t": -0.0,
+      "msg": "launch: takeoff"
+    },
+    {
+      "t": 3.6,
+      "msg": "launch: hovering, telemetry {'bat': '100', 'h': '130', 'tof': '148', 'yaw': '0', 'templ': '65', 'temph': '66', 'time': '12'}"
+    },
+    {
+      "t": 21.5,
+      "msg": "SEARCH: 6 headings judged in 2.9s [0.06 0.07 0.08 0.04 0.03 0.07]"
+    },
+    {
+      "t": 21.9,
+      "msg": "SEARCH: jev picks 2 from 6 headings (0cm from launch, h+0cm)",
+      "pose": {
+        "x_cm": 0,
+        "y_cm": 0,
+        "yaw_deg": 300
+      }
+    },
+    {
+      "t": 46.5,
+      "msg": "SEARCH: 6 headings judged in 2.7s [0.10 0.06 0.05 0.89 0.92 0.04]"
+    },
+    {
+      "t": 46.5,
+      "msg": "SEARCH: candidate person at 0\u00b0 (scan conf 0.92) -- confirming"
+    },
+    {
+      "t": 53.1,
+      "msg": "CONFIRM burst at 0\u00b0 (strict): 0.78 0.77 0.71 (need 3 frames all >= 0.60)"
+    },
+    {
+      "t": 53.1,
+      "msg": "SEARCH: person found, heading 0\u00b0 (conf 0.75, jev+vision)",
+      "pose": {
+        "x_cm": -50,
+        "y_cm": -87,
+        "yaw_deg": 0
+      },
+      "detection": {
+        "person": true,
+        "confidence": 0.753,
+        "bbox": [
+          0.1,
+          0.2,
+          0.3,
+          0.8
+        ],
+        "description": "jev p=0.78 over 1 candidates (vision, strict)",
+        "backend": "jev+vision"
+      }
+    },
+    {
+      "t": 56.1,
+      "msg": "centered on person (ccw 24\u00b0)"
+    },
+    {
+      "t": 56.9,
+      "msg": "PHOTO saved /home/ben-ami/tello-jev-mission/photos/person_20260921_231419.jpg"
+    },
+    {
+      "t": 66.2,
+      "msg": "FLIP done (b)"
+    },
+    {
+      "t": 66.2,
+      "msg": "retry 'down 30' after error: 'down 30' failed: error Motor stop"
+    },
+    {
+      "t": 66.7,
+      "msg": "retry 'down 30' after error: 'down 30' failed: error Motor stop"
+    },
+    {
+      "t": 67.1,
+      "msg": "SKIP 'down 30' after 3 failed attempts (1 in a row now, still flying): 'down 30' failed: error Motor stop"
+    },
+    {
+      "t": 67.1,
+      "msg": "RTH: 100cm away, turning -36\u00b0",
+      "pose": {
+        "x_cm": -50,
+        "y_cm": -87,
+        "yaw_deg": 336
+      }
+    },
+    {
+      "t": 67.2,
+      "msg": "retry 'ccw 36' after error: 'ccw 36' failed: error Motor stop"
+    },
+    {
+      "t": 67.6,
+      "msg": "retry 'ccw 36' after error: 'ccw 36' failed: error Motor stop"
+    },
+    {
+      "t": 68.1,
+      "msg": "SKIP 'ccw 36' after 3 failed attempts (2 in a row now, still flying): 'ccw 36' failed: error Motor stop"
+    },
+    {
+      "t": 68.1,
+      "msg": "retry 'forward 100' after error: 'forward 100' failed: error Motor stop"
+    },
+    {
+      "t": 68.6,
+      "msg": "retry 'forward 100' after error: 'forward 100' failed: error Motor stop"
+    },
+    {
+      "t": 69.1,
+      "msg": "SKIP 'forward 100' after 3 failed attempts (3 in a row now, still flying): 'forward 100' failed: error Motor stop"
+    },
+    {
+      "t": 69.2,
+      "msg": "retry 'cw 24' after error: 'cw 24' failed: error Motor stop"
+    },
+    {
+      "t": 69.7,
+      "msg": "retry 'cw 24' after error: 'cw 24' failed: error Motor stop"
+    },
+    {
+      "t": 70.1,
+      "msg": "SKIP 'cw 24' after 3 failed attempts (4 in a row now, still flying): 'cw 24' failed: error Motor stop"
+    },
+    {
+      "t": 70.1,
+      "msg": "RTH: at home (dead-reckoned) {'x_cm': -50, 'y_cm': -87, 'yaw_deg': 336}"
+    },
+    {
+      "t": 70.1,
+      "msg": "LAND"
+    },
+    {
+      "t": 72.7,
+      "msg": "power: off"
+    }
+  ],
+  "person": {
+    "detection": {
+      "person": true,
+      "confidence": 0.753,
+      "bbox": [
+        0.1,
+        0.2,
+        0.3,
+        0.8
+      ],
+      "description": "jev p=0.78 over 1 candidates (vision, strict)",
+      "backend": "jev+vision"
+    },
+    "pose": {
+      "x_cm": -50,
+      "y_cm": -87,
+      "yaw_deg": 336
+    }
+  },
+  "photo": "/home/ben-ami/tello-jev-mission/photos/person_20260921_231419.jpg",
+  "outcome": "person found",
+  "detector": "jev+vision",
+  "jev_decisions_log": "/home/ben-ami/tello-jev-mission/logs/jev_decisions_20260921_231218.jsonl",
+  "recording": "/home/ben-ami/tello-jev-mission/recordings/flight_20260921_231218.mp4",
+  "ended": "2026-09-21 23:14:34",
+  "final_pose": {
+    "x_cm": -50,
+    "y_cm": -87,
+    "yaw_deg": 336
+  },
+  "flight_s": 72.7
+}
