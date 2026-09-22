@@ -56,39 +56,102 @@ Calibration on Frigate driveway snapshots (4 with a person, 3 without):
 if jev does not answer a probe before launch the mission refuses to take off.
 
 Re-tune on your own drone frames: `./run.sh calibrate --vision --positives dir1 --negatives dir2`,
-then set `jev.min_confidence` (0.45 now) between the two means.
+then set `jev.min_confidence` (0.45 now, the sensitive scan bar) between the
+two means; `jev.confirm_min_confidence` (0.60) is the stricter bar the
+confirm burst has to clear.
 `calibration/negatives/` holds a real false positive from this rig (a closed
 door jev's vision model called a person) — add your own tricky negatives
 there as you find them.
 
-A single frame is not enough either way: `Mission.look()` bursts
-`frames_per_heading` (4) frames per stop and requires **every** one to
-individually clear `jev.min_confidence`, not just the average — a mean-based
-check once let that same door through (frames scored 0.84/0.81/0.03, mean
-0.56, above the 0.45 threshold) even though jev scored the exact same frame
-0.03 in isolation. One flaky frame in an otherwise-empty burst no longer
-drags the average past threshold.
+Detection runs in two stages that ask jev **different questions**, because
+they want different things:
+
+- **Scan** (`SCAN_Q`, one frame per heading, bar `jev.min_confidence` 0.45)
+  wants recall. The vision prompt explicitly counts a partly visible body —
+  bare legs, feet, an arm, someone behind a door — as a real person, because
+  missing someone is the one unrecoverable failure and a false alarm costs
+  seconds. An earlier prompt called the actual search target
+  `is_real_person=false` ("partially visible") and jev scored that frame
+  0.18; with the current one the same frame scores 0.83.
+- **Confirm** (`STRICT_Q`, `confirm_frames` = 3 **fresh** frames, bar
+  `jev.confirm_min_confidence` 0.60) wants precision, and every frame must
+  individually clear the bar — not the average. A mean-based check once let
+  a closed door through (0.84/0.81/0.03, mean 0.56) that jev scored 0.03 in
+  isolation.
+
+Measured on frames from a real flight: a person seen only as bare legs at
+the frame edge scores 0.89 scan / 0.73–0.78 strict; a tan blob in a doorway
+scores 0.82–0.86 scan but drops to 0.52–0.71 strict; an empty room stays
+0.02–0.08. The every-frame rule is what separates the last two — the blob
+cleared 0.60 on one frame out of four. Don't harden `STRICT_Q` without
+re-measuring: a harsher wording ("is a human DEFINITELY visible") rejected
+the real person too, at 0.39–0.45.
 
 ## Navigation: jev decides where and when
 
-There is no fixed patrol route. At each stop, once a person-check comes back
-negative, jev is asked a second typed question -- `next_action`, a **choice**
-among `rotate` / `advance` / `stop` -- reusing the same frame state a person
-check just built (no extra frontend pass, one extra jev round trip). `stop`
-means "this direction looks like a dead end", and is treated the same as
-`rotate`: turn `scan_step_deg` and look again from the same spot rather than
-push forward. `advance` moves `nav_forward_step_cm` forward.
+There is no fixed patrol route, and the drone doesn't react one step at a
+time to whatever it happens to be facing -- it looks at its **whole
+surroundings before committing to a direction**. At each stop:
 
-Two things stay hard limits no matter what jev picks, since the Tello has no
-obstacle sensing (forward movement is blind) and no GPS (dead reckoning drift
-gets worse the further it roams):
+1. `scan_circle()` rotates a full 360°, grabbing **one** frame per heading
+   (`scan_step_deg`, 60° → 6 headings) and doing nothing else -- no network
+   at all, ~2 s per heading.
+2. `detect_frames()` judges the whole circle **concurrently**. Each frame
+   costs two sequential HTTP round trips (vision model, then jev), so doing
+   it inline per heading is what used to make a scan take ~70 s of a ~150 s
+   battery; overlapped, the circle costs about one frame's latency (measured
+   4.1× faster on a 6-frame circle). A heading that looks like a person is
+   re-checked by `confirm_person()` with a strict fresh burst before the
+   mission commits to it.
+3. If nobody was found, **one** jev call compares every heading scanned --
+   `next_action`'s reasoning is now "which of these directions is the most
+   promising", not "should I move from here" -- and jev picks a single
+   heading to commit to, or `ascend`/`descend` if none of the headings beat
+   gaining/losing height for a better vantage.
+4. The drone turns to face the chosen heading and moves `nav_forward_step_cm`
+   forward in a straight line, then the next stop starts a fresh 360° scan.
+
+`ascend`/`descend` move `nav_vertical_step_cm` up/down (e.g. seeing over a
+low obstacle, or checking whether someone is seated/lying below the current
+view) -- the drone's `target_height_cm` (what `maintain_height()` holds
+against barometer drift) moves with a deliberate ascend/descend, so
+drift-correction doesn't fight jev's own choice back down to the original
+hover height. If every heading is blocked and height is already maxed in
+both directions, the drone gives up on that spot, repositions and keeps
+searching -- running out of ideas is not a reason to land.
+
+A heading is only offered to jev as a candidate to advance into if it's not
+a clear, deterministic dead end -- not left purely to jev's reading of a
+scene description: a frame that's mostly a flat, bright surface (a wall or
+closed door filling the view) is detected directly
+(`JevDetector._check_blocked()`: >60% of pixels near-white *and* very low
+edge density, cheap to compute, independent of frontend) and that heading is
+simply excluded from the choice, regardless of what jev might have inferred
+from the frontend's text. (Needs `opencv-python-headless` + `numpy`
+installed -- optional for the vision frontend otherwise -- to actually run;
+degrades to "never blocks" without them, silently. **They are not installed
+on this host**, so the second gate below is currently the only one doing
+anything.)
+
+Second gate: the vision frontend reports `openness` (`open`/`partial`/
+`blocked`) per frame alongside `scene`, `path` and `exits`, and a heading it
+calls `blocked` is excluded too. Weaker than the opencv check -- it is still
+a model's judgement -- but unlike jev reading a one-line scene string, it is
+made while looking at the pixels. Those same fields are what jev is given
+for each heading, instead of a single vague sentence.
+
+Three things stay hard limits no matter what jev picks, since the Tello has
+no obstacle sensing (forward/vertical movement is blind) and no GPS (dead
+reckoning drift gets worse the further/higher it roams):
 
 - `max_distance_from_launch_cm`: once the dead-reckoned distance from the
-  launch point would exceed this, `advance` is not offered -- jev can only
-  rotate/stop until it's pointed back toward less-explored ground.
-- `return_buffer_s`: the search loop gives up (and returns home) once
-  `max_flight_s - return_buffer_s` of flight time has elapsed, leaving room
-  to actually fly home and land rather than hard-aborting mid-search.
+  launch point would come within one step of this, no heading is offered as
+  an `advance` candidate -- only `ascend`/`descend` remain, if height allows.
+- `max_height_deviation_cm`: how far `target_height_cm` may drift from the
+  height set right after takeoff, in either direction; `ascend`/`descend`
+  aren't offered past that ceiling/floor.
+There is deliberately no *time* limit on the search: only the battery floor
+ends a flight (see Landing policy below).
 
 ## Usage
 
@@ -113,21 +176,31 @@ gets worse the further it roams):
 3. probe `command` up to 15x; abort if never `ok`; abort if battery < 25 %
 4. start the video listener **before** `streamon` (order matters — see
    Recording below), require a first frame before takeoff
-5. `takeoff` -> `stop` -> `up 20`; remember this as the target hover height
-6. search loop: correct any height drift, look for a person; if none, ask
-   jev `rotate` / `advance` / `stop` and act on it (see Navigation above),
-   repeat until found or the search time budget runs out
+5. `takeoff` -> `up 70`; remember this as the target hover height (~1.6 m,
+   so the downward-angled camera frames torsos rather than carpet)
+6. search loop, per cycle: correct height drift, capture a 360 deg circle of
+   frames (one per heading, no network), judge the whole circle concurrently
+   in one batch, confirm any hit with a strict 3-frame burst, else make one
+   jev call to pick the heading to fly into (see Navigation above). Repeats
+   until a person is found or the battery floor is reached
 7. on person: center on bbox, save `photos/person_<ts>.jpg` + `.json`
-   (detection, pose, telemetry); `up 30`, `flip b` (only if battery >= 55 %), `down 30`
+   (detection, pose, telemetry); `up 30`, `flip b`, `down 30`
 8. return to launch by dead reckoning (turn to face home, forward in <=300 cm
    chunks, restore heading), `land`, `streamoff`
 9. restore Wi-Fi, write `logs/report_<ts>.json`
 
-A movement command that errors is retried a couple of times, then just
-**skipped** — the mission keeps going rather than aborting over one bad
-command (pose is only updated on a command that actually succeeded). Battery
-going critical or `max_flight_s` (300, hard cap) being exceeded still aborts
-immediately and lands. Killing the process (any signal, not just Ctrl-C) is
+**Landing policy: the drone lands for exactly three reasons** — the person
+was found (photo -> flip -> return -> land), the battery reached
+`sdk.min_battery_land` (15 %, which lands it *in place* rather than spending
+the remaining charge on a return leg), or the operator interrupted. **Errors
+do not land it.** A movement command that errors is retried a couple of
+times and then **skipped** (pose is only updated on a command that actually
+succeeded); an error escaping a whole phase is logged and the search
+resumes; running out of viable directions just repositions and keeps
+looking. `check_limits()` needs *two consecutive* battery reads below the
+floor, since this pack sags hard under load, and `max_flight_s` (300) is now
+only a backstop for when battery telemetry is unreadable. Killing the
+process (any signal, not just Ctrl-C) is
 caught and routed through the same land/cleanup path — see Development log.
 
 ## Recording
@@ -214,15 +287,21 @@ worked fine since it's a request/reply the host initiates, but nothing had
 ever told the host to accept unprompted incoming packets on those ports.
 Fixed with two scoped `ufw allow ... on wlp3s0` rules.
 
-**Recording needed both a real recording and, once added, its own bugfix.**
-The mission previously had no video artifact at all beyond the detector's
-own low-res snapshots — added a proper `recordings/flight_<run_id>.mp4` (see
-Recording above). Burning in the live text overlays required switching that
-output from a lossless stream-copy to a `libx264` re-encode, which then
-needs real time after `SIGTERM` to flush its encoder and write the mp4
-trailer — the original 3-second shutdown grace period was too short, so
-recordings were saved with a missing `moov atom` and wouldn't open in
-anything. Grace period is now 10s when re-encoding.
+**Recording needed both a real recording and, once added, two rounds of
+bugfix.** The mission previously had no video artifact at all beyond the
+detector's own low-res snapshots — added a proper
+`recordings/flight_<run_id>.mp4` (see Recording above). Burning in the live
+text overlays required switching that output from a lossless stream-copy to
+a `libx264` re-encode, which needs real time after `SIGTERM` to flush its
+encoder and write the mp4 trailer (moov atom) — first fix bumped the
+shutdown grace period from 3s to 10s, which worked for short clips but still
+left longer/heavier flights (a 159s flight with a flip and several
+`advance`s) with a missing moov atom and an unplayable file. The real cause
+was `-movflags +faststart`: it makes ffmpeg rewrite the *entire* file at
+shutdown to relocate the moov atom to the front, and that rewrite scales
+with file size — no fixed grace period was ever going to cover every flight
+length. Removed entirely; these are local-only files, never streamed, so
+faststart bought nothing but risk.
 
 **A flight-command error used to abort and land immediately, no matter
 what.** Real flights hit both a `Motor stop` error (once right after
@@ -244,13 +323,17 @@ live: the rotors were still spinning after a kill. `Mission.run()` now
 installs a `SIGTERM` handler that raises `KeyboardInterrupt`, routing any
 kill through the exact same abort→emergency-land→cleanup path as Ctrl-C.
 
-**Navigation was rebuilt from a fixed route to jev-driven, by request.** The
-mission used to walk a hardcoded `mission.legs` list (turn, forward, scan,
-repeat). It now asks jev a second typed question at every stop —
-`next_action`: `rotate` / `advance` / `stop` — reusing the same frame state
-a person-check just built, with `max_distance_from_launch_cm` and
-`return_buffer_s` as the only hard limits regardless of what jev picks (see
-Navigation above).
+**Navigation was rebuilt from a fixed route to jev-driven, by request** --
+first to a one-step-at-a-time model (`next_action`: `rotate`/`advance`/`stop`
+reacting to whatever heading the drone happened to already be facing), then,
+on further request, to the full-360°-scan-then-commit model described in
+Navigation above, once it became clear "look at one heading, maybe move,
+repeat" wasn't actually using the fact that the drone can see everything
+around it before choosing a direction. Height control (`ascend`/`descend`)
+and the deterministic wall/door block-check were added the same round, for
+the same reason as the detection burst fix below: a couple of things were
+still being left to jev's own judgment of a scene description that a cheap,
+explicit check could decide correctly and consistently instead.
 
 **Other real hardware trouble encountered along the way, for context**: an
 overheat that auto-shut the drone off entirely, a battery that dropped from

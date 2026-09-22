@@ -1,0 +1,29 @@
+{
+  "detection": {
+    "person": true,
+    "confidence": 0.753,
+    "bbox": [
+      0.1,
+      0.2,
+      0.3,
+      0.8
+    ],
+    "description": "jev p=0.78 over 1 candidates (vision, strict)",
+    "backend": "jev+vision"
+  },
+  "pose": {
+    "x_cm": -50,
+    "y_cm": -87,
+    "yaw_deg": 336
+  },
+  "telemetry": {
+    "bat": "86",
+    "h": "100",
+    "tof": "72",
+    "yaw": "-21",
+    "templ": "72",
+    "temph": "73",
+    "time": "65"
+  },
+  "time": "20260921_231419"
+}
